@@ -82,4 +82,4 @@ def backfill_season(start_date_str, end_date_str):
 
 # This is just temporary
 if __name__ == "__main__":
-    backfill_season("03/27/2025", "06/27/2026")
+    backfill_season("06/28/2026", "07/11/2026")
