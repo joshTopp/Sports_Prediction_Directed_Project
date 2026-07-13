@@ -25,7 +25,6 @@ def seed_active_mlb_players():
         print(f"Fetching {team_name}...")
 
         try:
-            # Grab the active roster
             roster = statsapi.get('team_roster', {'teamId': team_id})['roster']
 
             for member in roster:
@@ -33,15 +32,18 @@ def seed_active_mlb_players():
                 player_id = person['id']
                 position = member['position']
 
-                player_detail = statsapi.lookup_player(player_id)
 
-                bat_side = "R"  # Default fallback
+                bat_side = "R"
                 throw_hand = "R"
+                try:
+                    player_data = statsapi.get('person', {'personId': player_id})
+                    if player_data and 'people' in player_data and len(player_data['people']) > 0:
+                        p_info = player_data['people'][0]
 
-                if player_detail and len(player_detail) > 0:
-                    p_info = player_detail[0]
-                    bat_side = p_info.get('batSide', {}).get('code', 'R')
-                    throw_hand = p_info.get('pitchHand', {}).get('code', 'R')
+                        bat_side = p_info.get('batSide', {}).get('code', 'R')
+                        throw_hand = p_info.get('pitchHand', {}).get('code', 'R')
+                except Exception as e:
+                    print(f"Failed 3: {e}")
                 player_row = {
                     "player_id": player_id,
                     "full_name": person['fullName'],
@@ -54,7 +56,7 @@ def seed_active_mlb_players():
 
         except Exception as e:
             print(f"Error {team_id}: {e}")
-
+            
     if all_players_payload:
         try:
             try:
