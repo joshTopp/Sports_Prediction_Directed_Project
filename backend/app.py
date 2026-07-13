@@ -1,17 +1,18 @@
 from fastapi import FastAPI
 from model_service import model_service
-# =============================
+
+
 # GAME PREDICTION ENDPOINT
-# =============================
+
 @app.post("/predict/game")
 def predict_game(data: dict):
     result = model_service.predict_game(data)
     return result
 
 
-# =============================
+
 # EXPLANATION FEATURE (KEY DIFFERENTIATOR)
-# =============================
+
 @app.post("/predict/game/explain")
 def explain_prediction(data: dict):
     result = model_service.predict_game(data)
@@ -34,9 +35,9 @@ def explain_prediction(data: dict):
     }
 
 
-# =============================
+
 # REFERENCES ENDPOINT (FOR PROJECT REQUIREMENTS)
-# =============================
+
 @app.get("/references")
 def references():
     return {
