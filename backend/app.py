@@ -1,5 +1,6 @@
 import os
-from fastapi import FastAPI, HTTPException
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 from dotenv import load_dotenv
@@ -84,6 +85,37 @@ def get_player_directory():
     """
     try:
         response = supabase.table("players").select("player_id, full_name, primary_position, bat_side, throw_hand, team_id").execute()
+        return {"count": len(response.data), "players": response.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# PLAYER SEARCH ENDPOINT
+
+@app.get("/api/players/search")
+def search_players(
+    name: Optional[str] = Query(None, description="Partial, case-insensitive match on player full name, e.g. 'judge'"),
+    team_id: Optional[int] = Query(None, description="Exact match on team id, e.g. 147"),
+    position: Optional[str] = Query(None, description="Exact match on position abbreviation, e.g. 'SS', 'P', 'OF'"),
+):
+    """
+    Searches the player directory by any combination of name, team, and position.
+    All filters are optional and combine with AND logic. Calling with no filters
+    behaves like /api/players (returns the full roster).
+    """
+    try:
+        query = supabase.table("players").select(
+            "player_id, full_name, primary_position, bat_side, throw_hand, team_id"
+        )
+
+        if name:
+            query = query.ilike("full_name", f"%{name}%")
+        if team_id is not None:
+            query = query.eq("team_id", team_id)
+        if position:
+            query = query.eq("primary_position", position.upper())
+
+        response = query.execute()
         return {"count": len(response.data), "players": response.data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
