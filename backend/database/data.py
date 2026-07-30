@@ -101,4 +101,3 @@ def generate_and_save_predictions(matchups):
 # This is just temporary
 if __name__ == "__main__":
     today_games = fetch_daily_schedule()
-    generate_and_save_predictions(today_games)
