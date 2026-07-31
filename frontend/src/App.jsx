@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import "./App.css";
 
 const PLAYER_API_URL = "http://127.0.0.1:8000/api/players";
+const DASHBOARD_API_URL =
+  "http://127.0.0.1:8000/api/dashboard/2026-07-31";
 
 const teamIdMap = {
   108: { teamCode: "LAA", team: "Los Angeles Angels" },
@@ -294,7 +296,71 @@ function createInitials(fullName) {
   );
 }
 
-function convertBackendPlayer(player, index) {
+function isPitcherPosition(position) {
+  const pitcherPositions = ["P", "SP", "RP", "TWP"];
+
+  return pitcherPositions.includes(
+    String(position || "").toUpperCase(),
+  );
+}
+
+function normalizePredictionRisk(riskLevel, fallbackRisk) {
+  const normalizedRisk = String(riskLevel || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalizedRisk === "low") {
+    return "Low";
+  }
+
+  if (
+    normalizedRisk === "medium" ||
+    normalizedRisk === "moderate"
+  ) {
+    return "Moderate";
+  }
+
+  if (normalizedRisk === "high") {
+    return "High";
+  }
+
+  return fallbackRisk;
+}
+
+function normalizePredictionConfidence(
+  confidenceScore,
+  fallbackConfidence,
+) {
+  const numericConfidence = Number(confidenceScore);
+
+  if (!Number.isFinite(numericConfidence)) {
+    return fallbackConfidence;
+  }
+
+  if (numericConfidence >= 0 && numericConfidence <= 1) {
+    return Math.round(numericConfidence * 100);
+  }
+
+  return Math.round(numericConfidence);
+}
+
+function formatStrikeoutProjection(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return value;
+  }
+
+  return numericValue.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function convertBackendPlayer(
+  player,
+  index,
+  loadedMatchups,
+  loadedPredictions,
+  backendPlayerLookup,
+) {
   const playerId = player.player_id ?? `backend-player-${index}`;
 
   const predictionProfileIndex =
@@ -308,8 +374,93 @@ function convertBackendPlayer(player, index) {
       : player.team_id;
 
   const mappedTeam = teamIdMap[player.team_id];
-
   const playerName = player.full_name || `MLB Player ${index + 1}`;
+
+  let playerMatchup = "Matchup TBD";
+  let opposingPitcher = "Projected Starting Pitcher";
+  const numericTeamId = Number(player.team_id);
+
+  const matchingGame = Array.isArray(loadedMatchups)
+    ? loadedMatchups.find((game) => {
+        return (
+          Number(game.home_team_id) === numericTeamId ||
+          Number(game.away_team_id) === numericTeamId
+        );
+      })
+    : null;
+
+  if (matchingGame) {
+    const playerIsHomeTeam =
+      Number(matchingGame.home_team_id) === numericTeamId;
+
+    const opponentTeamId = playerIsHomeTeam
+      ? matchingGame.away_team_id
+      : matchingGame.home_team_id;
+
+    const opponentTeam = teamIdMap[Number(opponentTeamId)];
+
+    const opponentTeamCode = opponentTeam
+    ? opponentTeam.teamCode
+    : `T${opponentTeamId}`;
+  
+  playerMatchup = playerIsHomeTeam
+    ? `vs ${opponentTeamCode}`
+    : `@ ${opponentTeamCode}`;
+  
+  const opposingPitcherId = playerIsHomeTeam
+    ? matchingGame.away_probable_pitcher_id
+    : matchingGame.home_probable_pitcher_id;
+  
+  if (
+    opposingPitcherId !== null &&
+    opposingPitcherId !== undefined
+  ) {
+    const pitcherPlayer = backendPlayerLookup.get(
+      Number(opposingPitcherId),
+    );
+  
+    if (pitcherPlayer?.full_name) {
+      opposingPitcher = pitcherPlayer.full_name;
+    }
+  }
+  }
+
+  const playerPosition = player.primary_position || "N/A";
+
+  const playerIsPitcher = isPitcherPosition(playerPosition);
+  
+  const strikeoutPrediction =
+    playerIsPitcher && Array.isArray(loadedPredictions)
+      ? loadedPredictions.find((prediction) => {
+          return Number(prediction.player_id) === Number(playerId);
+        })
+      : null;
+  
+  const predictedStrikeouts = Number(
+    strikeoutPrediction?.predicted_value,
+  );
+  
+  const hasStrikeoutPrediction =
+    Boolean(strikeoutPrediction) &&
+    Number.isFinite(predictedStrikeouts);
+  
+  const strikeoutRisk = hasStrikeoutPrediction
+    ? predictedStrikeouts
+    : predictionProfile.strikeoutRisk;
+  
+  const confidence = hasStrikeoutPrediction
+    ? normalizePredictionConfidence(
+        strikeoutPrediction.confidence_score,
+        predictionProfile.confidence,
+      )
+    : predictionProfile.confidence;
+  
+  const risk = hasStrikeoutPrediction
+    ? normalizePredictionRisk(
+        strikeoutPrediction.risk_level,
+        predictionProfile.risk,
+      )
+    : predictionProfile.risk;
 
   return {
     ...predictionProfile,
@@ -321,14 +472,19 @@ function convertBackendPlayer(player, index) {
     team: mappedTeam ? mappedTeam.team : `Team ${teamId}`,
     teamCode: mappedTeam ? mappedTeam.teamCode : `T${teamId}`,
 
-    position: player.primary_position || "N/A",
+    position: playerPosition,
     number: "--",
     bats: player.bat_side || "N/A",
     throws: player.throw_hand || "N/A",
-
-    matchup: "Matchup TBD",
+    
+    matchup: playerMatchup,
     gameTime: "TBD",
-    opposingPitcher: "Projected Starting Pitcher",
+    opposingPitcher,
+    
+    strikeoutRisk,
+    confidence,
+    risk,
+    hasStrikeoutPrediction,
 
     insights: [
       "Recent performance trends support the current player outlook.",
@@ -1058,9 +1214,18 @@ function MatchupStrengthMeter({ player }) {
       className: "blue",
     },
     {
-      label: "Strikeout Risk",
-      value: `${player.strikeoutRisk}%`,
-      percentage: player.strikeoutRisk,
+      label: player.hasStrikeoutPrediction
+        ? "Projected Strikeouts"
+        : "Strikeout Risk",
+      value: player.hasStrikeoutPrediction
+        ? `${formatStrikeoutProjection(player.strikeoutRisk)} K`
+        : `${player.strikeoutRisk}%`,
+      percentage: player.hasStrikeoutPrediction
+        ? Math.min(
+            Math.max(Number(player.strikeoutRisk) * 10, 0),
+            100,
+          )
+        : player.strikeoutRisk,
       className: "yellow",
     },
     {
@@ -1279,9 +1444,21 @@ function PlayerDetailPage({ player, setActivePage }) {
         />
 
         <MetricCard
-          label="Strikeout Risk"
-          value={`${player.strikeoutRisk}%`}
-          caption="Lower is stronger"
+          label={
+            player.hasStrikeoutPrediction
+              ? "Projected Strikeouts"
+              : "Strikeout Risk"
+          }
+          value={
+            player.hasStrikeoutPrediction
+              ? `${formatStrikeoutProjection(player.strikeoutRisk)} K`
+              : `${player.strikeoutRisk}%`
+          }
+          caption={
+            player.hasStrikeoutPrediction
+              ? "Pitcher projection"
+              : "Lower is stronger"
+          }
           accent="red"
         />
 
@@ -1630,45 +1807,107 @@ function App() {
   const [searchText, setSearchText] = useState("");
   const [backendPlayerCount, setBackendPlayerCount] = useState(0);
   const [isLoadingPlayers, setIsLoadingPlayers] = useState(true);
+  
+  const [dailyMatchups, setDailyMatchups] = useState([]);
+  const [dailyPredictions, setDailyPredictions] = useState([]);
 
   useEffect(() => {
     let requestCancelled = false;
-
-    async function loadBackendPlayers() {
+  
+    async function loadApplicationData() {
       try {
-        const response = await fetch(PLAYER_API_URL);
-
-        if (!response.ok) {
-          throw new Error(`Player request failed with status ${response.status}`);
+        const playerResponse = await fetch(PLAYER_API_URL);
+  
+        if (!playerResponse.ok) {
+          throw new Error(
+            `Player request failed with status ${playerResponse.status}`,
+          );
         }
-
-        const data = await response.json();
-
-        const backendPlayers = Array.isArray(data.players) ? data.players : [];
-
+  
+        const playerData = await playerResponse.json();
+  
+        const backendPlayers = Array.isArray(playerData.players)
+          ? playerData.players
+          : [];
+  
         if (backendPlayers.length === 0) {
           throw new Error("The backend returned an empty player list.");
         }
-
-        const convertedPlayers = backendPlayers.map(convertBackendPlayer);
+  
+        let loadedMatchups = [];
+        let loadedPredictions = [];
+  
+        try {
+          const dashboardResponse = await fetch(DASHBOARD_API_URL);
+  
+          if (!dashboardResponse.ok) {
+            throw new Error(
+              `Dashboard request failed with status ${dashboardResponse.status}`,
+            );
+          }
+  
+          const dashboardData = await dashboardResponse.json();
+  
+          loadedMatchups = Array.isArray(dashboardData.matchups)
+            ? dashboardData.matchups
+            : [];
+  
+          loadedPredictions = Array.isArray(dashboardData.predictions)
+            ? dashboardData.predictions
+            : [];
+        } catch (dashboardError) {
+          console.error(
+            "Could not load daily matchup data.",
+            dashboardError,
+          );
+        }
+  
+        const backendPlayerLookup = new Map(
+          backendPlayers.map((backendPlayer) => [
+            Number(backendPlayer.player_id),
+            backendPlayer,
+          ]),
+        );
+        
+        const convertedPlayers = backendPlayers.map((player, index) =>
+          convertBackendPlayer(
+            player,
+            index,
+            loadedMatchups,
+            loadedPredictions,
+            backendPlayerLookup,
+          ),
+        );
 
         if (requestCancelled) {
           return;
         }
-
+  
+        const returnedCount = Number(playerData.count);
+  
         setAvailablePlayers(convertedPlayers);
-        setBackendPlayerCount(convertedPlayers.length);
+        setBackendPlayerCount(
+          Number.isFinite(returnedCount)
+            ? returnedCount
+            : convertedPlayers.length,
+        );
         setSelectedPlayer(convertedPlayers[0]);
+  
+        setDailyMatchups(loadedMatchups);
+        setDailyPredictions(loadedPredictions);
       } catch (error) {
         console.error(
           "Could not load backend players. Using local players instead.",
           error,
         );
-
+  
         if (!requestCancelled) {
           setAvailablePlayers(fallbackPlayers);
           setBackendPlayerCount(0);
           setSelectedPlayer(fallbackPlayers[0]);
+  
+          setDailyMatchups([]);
+          setDailyPredictions([]);
         }
       } finally {
         if (!requestCancelled) {
@@ -1676,9 +1915,9 @@ function App() {
         }
       }
     }
-
-    loadBackendPlayers();
-
+  
+    loadApplicationData();
+  
     return () => {
       requestCancelled = true;
     };
