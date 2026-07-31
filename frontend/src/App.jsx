@@ -1,7 +1,50 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 
-const players = [
+const PLAYER_API_URL = "http://127.0.0.1:8000/api/players";
+
+const teamIdMap = {
+  108: { teamCode: "LAA", team: "Los Angeles Angels" },
+  109: { teamCode: "ARI", team: "Arizona Diamondbacks" },
+  110: { teamCode: "BAL", team: "Baltimore Orioles" },
+  111: { teamCode: "BOS", team: "Boston Red Sox" },
+  112: { teamCode: "CHC", team: "Chicago Cubs" },
+  113: { teamCode: "CIN", team: "Cincinnati Reds" },
+  114: { teamCode: "CLE", team: "Cleveland Guardians" },
+  115: { teamCode: "COL", team: "Colorado Rockies" },
+  116: { teamCode: "DET", team: "Detroit Tigers" },
+  117: { teamCode: "HOU", team: "Houston Astros" },
+  118: { teamCode: "KC", team: "Kansas City Royals" },
+  119: { teamCode: "LAD", team: "Los Angeles Dodgers" },
+  120: { teamCode: "WSH", team: "Washington Nationals" },
+  121: { teamCode: "NYM", team: "New York Mets" },
+  133: { teamCode: "ATH", team: "Athletics" },
+  134: { teamCode: "PIT", team: "Pittsburgh Pirates" },
+  135: { teamCode: "SD", team: "San Diego Padres" },
+  136: { teamCode: "SEA", team: "Seattle Mariners" },
+  137: { teamCode: "SF", team: "San Francisco Giants" },
+  138: { teamCode: "STL", team: "St. Louis Cardinals" },
+  139: { teamCode: "TB", team: "Tampa Bay Rays" },
+  140: { teamCode: "TEX", team: "Texas Rangers" },
+  141: { teamCode: "TOR", team: "Toronto Blue Jays" },
+  142: { teamCode: "MIN", team: "Minnesota Twins" },
+  143: { teamCode: "PHI", team: "Philadelphia Phillies" },
+  144: { teamCode: "ATL", team: "Atlanta Braves" },
+  145: { teamCode: "CWS", team: "Chicago White Sox" },
+  146: { teamCode: "MIA", team: "Miami Marlins" },
+  147: { teamCode: "NYY", team: "New York Yankees" },
+  158: { teamCode: "MIL", team: "Milwaukee Brewers" },
+};
+
+/*
+  These local players remain available if the backend is offline
+  or returns an empty player list.
+
+  Prediction numbers are still stored in the frontend until the
+  prediction endpoints are connected.
+*/
+
+const fallbackPlayers = [
   {
     id: 1,
     name: "Aaron Judge",
@@ -37,7 +80,7 @@ const players = [
     initials: "SO",
     team: "Los Angeles Dodgers",
     teamCode: "LAD",
-    position: "DH",
+    position: "TWP",
     number: "17",
     bats: "L",
     throws: "R",
@@ -235,6 +278,66 @@ const players = [
     ],
   },
 ];
+
+function createInitials(fullName) {
+  if (!fullName) {
+    return "MLB";
+  }
+
+  const nameParts = fullName.trim().split(/\s+/).filter(Boolean);
+
+  return (
+    nameParts
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("") || "MLB"
+  );
+}
+
+function convertBackendPlayer(player, index) {
+  const playerId = player.player_id ?? `backend-player-${index}`;
+
+  const predictionProfileIndex =
+    Math.abs(Number(player.player_id) || index) % fallbackPlayers.length;
+
+  const predictionProfile = fallbackPlayers[predictionProfileIndex];
+
+  const teamId =
+    player.team_id === null || player.team_id === undefined
+      ? "N/A"
+      : player.team_id;
+
+  const mappedTeam = teamIdMap[player.team_id];
+
+  const playerName = player.full_name || `MLB Player ${index + 1}`;
+
+  return {
+    ...predictionProfile,
+
+    id: playerId,
+    name: playerName,
+    initials: createInitials(playerName),
+
+    team: mappedTeam ? mappedTeam.team : `Team ${teamId}`,
+    teamCode: mappedTeam ? mappedTeam.teamCode : `T${teamId}`,
+
+    position: player.primary_position || "N/A",
+    number: "--",
+    bats: player.bat_side || "N/A",
+    throws: player.throw_hand || "N/A",
+
+    matchup: "Matchup TBD",
+    gameTime: "TBD",
+    opposingPitcher: "Projected Starting Pitcher",
+
+    insights: [
+      "Recent performance trends support the current player outlook.",
+      "Matchup strength is included when the next game is available.",
+      "Strikeout risk contributes to the overall confidence score.",
+      "Recent form and player trends are included in the analysis.",
+    ],
+  };
+}
 
 function getRiskClass(risk) {
   return `risk-${risk.toLowerCase()}`;
@@ -499,6 +602,7 @@ function SummaryCard({ icon, label, value, description, status }) {
 }
 
 function DashboardPage({
+  players,
   filteredPlayers,
   selectedPlayer,
   setSelectedPlayer,
@@ -506,6 +610,7 @@ function DashboardPage({
   setSearchText,
   openDetail,
   setActivePage,
+  playerLoadLabel,
 }) {
   const topPredictions = [...players]
     .sort((firstPlayer, secondPlayer) => {
@@ -547,9 +652,7 @@ function DashboardPage({
                 <h2>Search MLB Players</h2>
               </div>
 
-              <span className="result-count">
-                {filteredPlayers.length} players
-              </span>
+              <span className="result-count">{playerLoadLabel}</span>
             </div>
 
             <label className="search-input-wrapper">
@@ -588,7 +691,7 @@ function DashboardPage({
               ) : (
                 <div className="empty-state">
                   <strong>No players found</strong>
-                  <p>Try searching for Judge, Ohtani, Soto, or Dodgers.</p>
+                  <p>Try searching for another player, team, or position.</p>
                 </div>
               )}
             </div>
@@ -658,16 +761,20 @@ function DashboardPage({
         <SummaryCard
           icon="✓"
           label="Highest Confidence"
-          value="Aaron Judge"
-          description="72% confidence score"
+          value={topPredictions[0]?.name || "Player"}
+          description={`${topPredictions[0]?.confidence || 0}% confidence score`}
           status="ready"
         />
 
         <SummaryCard
           icon="⌁"
           label="Lowest Risk"
-          value="Freddie Freeman"
-          description="Low strikeout risk profile"
+          value={
+            players.find((player) => player.risk === "Low")?.name ||
+            players[0]?.name ||
+            "Player"
+          }
+          description="Low risk player profile"
           status="pending"
         />
 
@@ -682,7 +789,7 @@ function DashboardPage({
         <SummaryCard
           icon="☆"
           label="Watchlist"
-          value="4 Players"
+          value={`${Math.min(players.length, 4)} Players`}
           description="Featured players currently tracked"
           status="planned"
         />
@@ -702,7 +809,7 @@ function DashboardPage({
               <span className="status-indicator ready" />
               <p>
                 <strong>Player Board</strong>
-                <small>Active player insights</small>
+                <small>{playerLoadLabel}</small>
               </p>
             </div>
 
@@ -831,6 +938,7 @@ function PlayerSearchPage({
   searchText,
   setSearchText,
   openDetail,
+  playerLoadLabel,
 }) {
   return (
     <>
@@ -843,6 +951,8 @@ function PlayerSearchPage({
             matchup analysis.
           </p>
         </div>
+
+        <span className="result-count">{playerLoadLabel}</span>
       </section>
 
       <section className="search-page-grid">
@@ -1047,7 +1157,7 @@ function WhyPrediction({ player }) {
 
       <div className="insight-list">
         {player.insights.map((insight, index) => (
-          <div className="insight-row" key={insight}>
+          <div className="insight-row" key={`${player.id}-${index}`}>
             <span className={`insight-icon insight-${index + 1}`}>✓</span>
             <p>{insight}</p>
           </div>
@@ -1278,7 +1388,7 @@ function PlayerDetailPage({ player, setActivePage }) {
   );
 }
 
-function PredictionBoardPage({ setSelectedPlayer, openDetail }) {
+function PredictionBoardPage({ players, setSelectedPlayer, openDetail }) {
   return (
     <>
       <section className="page-heading">
@@ -1515,23 +1625,87 @@ function PremiumPage() {
 
 function App() {
   const [activePage, setActivePage] = useState("dashboard");
-  const [selectedPlayer, setSelectedPlayer] = useState(players[0]);
+  const [availablePlayers, setAvailablePlayers] = useState(fallbackPlayers);
+  const [selectedPlayer, setSelectedPlayer] = useState(fallbackPlayers[0]);
   const [searchText, setSearchText] = useState("");
+  const [backendPlayerCount, setBackendPlayerCount] = useState(0);
+  const [isLoadingPlayers, setIsLoadingPlayers] = useState(true);
+
+  useEffect(() => {
+    let requestCancelled = false;
+
+    async function loadBackendPlayers() {
+      try {
+        const response = await fetch(PLAYER_API_URL);
+
+        if (!response.ok) {
+          throw new Error(`Player request failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        const backendPlayers = Array.isArray(data.players) ? data.players : [];
+
+        if (backendPlayers.length === 0) {
+          throw new Error("The backend returned an empty player list.");
+        }
+
+        const convertedPlayers = backendPlayers.map(convertBackendPlayer);
+
+        if (requestCancelled) {
+          return;
+        }
+
+        setAvailablePlayers(convertedPlayers);
+        setBackendPlayerCount(convertedPlayers.length);
+        setSelectedPlayer(convertedPlayers[0]);
+      } catch (error) {
+        console.error(
+          "Could not load backend players. Using local players instead.",
+          error,
+        );
+
+        if (!requestCancelled) {
+          setAvailablePlayers(fallbackPlayers);
+          setBackendPlayerCount(0);
+          setSelectedPlayer(fallbackPlayers[0]);
+        }
+      } finally {
+        if (!requestCancelled) {
+          setIsLoadingPlayers(false);
+        }
+      }
+    }
+
+    loadBackendPlayers();
+
+    return () => {
+      requestCancelled = true;
+    };
+  }, []);
 
   const normalizedSearch = searchText.toLowerCase().trim();
 
-  const filteredPlayers = players.filter((player) => {
+  const filteredPlayers = availablePlayers.filter((player) => {
     const searchableText = [
       player.name,
       player.team,
       player.teamCode,
       player.position,
+      player.bats,
+      player.throws,
     ]
       .join(" ")
       .toLowerCase();
 
     return searchableText.includes(normalizedSearch);
   });
+
+  const playerLoadLabel = isLoadingPlayers
+    ? "Loading players..."
+    : backendPlayerCount > 0
+      ? `${backendPlayerCount} players loaded`
+      : `${availablePlayers.length} players available`;
 
   function openDetail(player) {
     setSelectedPlayer(player);
@@ -1548,6 +1722,7 @@ function App() {
           searchText={searchText}
           setSearchText={setSearchText}
           openDetail={openDetail}
+          playerLoadLabel={playerLoadLabel}
         />
       );
     }
@@ -1564,6 +1739,7 @@ function App() {
     if (activePage === "predictions") {
       return (
         <PredictionBoardPage
+          players={availablePlayers}
           setSelectedPlayer={setSelectedPlayer}
           openDetail={openDetail}
         />
@@ -1580,6 +1756,7 @@ function App() {
 
     return (
       <DashboardPage
+        players={availablePlayers}
         filteredPlayers={filteredPlayers}
         selectedPlayer={selectedPlayer}
         setSelectedPlayer={setSelectedPlayer}
@@ -1587,6 +1764,7 @@ function App() {
         setSearchText={setSearchText}
         openDetail={openDetail}
         setActivePage={setActivePage}
+        playerLoadLabel={playerLoadLabel}
       />
     );
   }
