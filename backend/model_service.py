@@ -61,40 +61,25 @@ class ModelService:
 
             logger.exception(self.model_error)
 
-    def predict_game(self, data):
-        """
-        Returns a game prediction when the model is available.
+  def predict_game(self, data):
 
-        No prediction is generated when the model has not been loaded.
-        """
-        if not self.model_ready or self.model is None:
-            return {
-                "status": "unavailable",
-                "model_ready": False,
-                "error": "The prediction model is currently unavailable.",
-                "detail": self.model_error,
-            }
+    if self.model is None:
+        return {"error": "Model not loaded yet"}
 
-        try:
-            dataframe = pd.DataFrame([data])
+    df = pd.DataFrame([data])
 
-            prediction = self.model.predict(dataframe)[0]
-            probabilities = self.model.predict_proba(dataframe)[0]
+    prediction = self.model.predict(df)[0]
+    probabilities = self.model.predict_proba(df)[0]
 
-            return {
-                "winner": "home" if prediction == 1 else "away",
-                "confidence": float(max(probabilities)),
-            }
+    home_prob = float(probabilities[1])
+    away_prob = float(probabilities[0])
 
-        except Exception as error:
-            logger.exception("Game prediction failed: %s", error)
-
-            return {
-                "status": "error",
-                "model_ready": True,
-                "error": "The model could not process this prediction request.",
-                "detail": str(error),
-            }
+    return {
+        "winner": "home" if prediction == 1 else "away",
+        "home_win_probability": round(home_prob, 3),
+        "away_win_probability": round(away_prob, 3),
+        "confidence": round(max(home_prob, away_prob), 3)
+    }
 
 
 model_service = ModelService()
