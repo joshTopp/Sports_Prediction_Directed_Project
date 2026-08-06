@@ -1,4 +1,4 @@
-name: Daily MLB K Pipeline
+name: Daily MLB Data Pipeline
 
 on:
   schedule:
