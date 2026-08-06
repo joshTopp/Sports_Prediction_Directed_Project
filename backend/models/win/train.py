@@ -10,7 +10,7 @@ from sklearn.metrics import log_loss, accuracy_score, brier_score_loss
 from backend.database.data import get_table_as_df, get_matchups_between
 from backend.models.win.features import build_win_training_dataset
 
-WINDOWS = (15, 30, 50, 100)
+WINDOWS = (15, 30, 50, 100, 200)
 
 MODEL_PATH = "win_model.joblib"
 FEATURE_COLS_PATH = "win_model_feature_cols.json"
@@ -75,9 +75,9 @@ def main():
     print(f"Test Brier score: {brier:.4f}")
 
     # Write onto the weights onto model to use for the app
-    joblib.dump(best_model, MODEL_PATH)
-    with open(FEATURE_COLS_PATH, "w") as f:
-        json.dump(feature_cols, f)
+    # joblib.dump(best_model, MODEL_PATH)
+    # with open(FEATURE_COLS_PATH, "w") as f:
+    #     json.dump(feature_cols, f)
 
 
 if __name__ == "__main__":

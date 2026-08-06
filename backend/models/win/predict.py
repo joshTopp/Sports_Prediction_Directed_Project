@@ -7,7 +7,7 @@ from pathlib import Path
 from backend.database.data import get_table_as_df, get_matchups_between, upsert_rows
 from backend.models.win.features import WinFeatureEngineer
 
-WINDOWS = (15, 30, 50, 100)
+WINDOWS = (15, 30, 50, 100, 200)
 PREDICTION_TYPE = "win_probability"
 
 DIR = Path(__file__).resolve().parent
