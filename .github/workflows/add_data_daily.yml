@@ -28,4 +28,5 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_KEY: ${{ secrets.DATABASE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
         run: python database/update_data_script.py
